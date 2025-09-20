@@ -1,0 +1,48 @@
+{
+  "name": "api-testing-client",
+  "version": "1.0.0",
+  "description": "Mini Postman - API Testing Client built with Electron",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron .",
+    "build-win": "electron-builder --win",
+    "build-mac": "electron-builder --mac",
+    "build-linux": "electron-builder --linux"
+  },
+  "keywords": [
+    "api",
+    "testing",
+    "electron",
+    "postman"
+  ],
+  "author": "Adam Jami",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^38.1.2",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "fs-extra": "^11.3.2"
+  },
+  "build": {
+    "appId": "com.adamjami.apiclient",
+    "productName": "API Testing Client",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

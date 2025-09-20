@@ -1,0 +1,404 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Testing Client</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        [v-cloak] { display: none; }
+        .json-display { 
+            background: #1e1e1e; 
+            color: #d4d4d4;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .method-badge {
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        .tab-active {
+            border-bottom: 2px solid #3b82f6;
+            color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100">
+    <div id="app" v-cloak>
+        <div class="flex h-screen">
+            <!-- Sidebar Collections -->
+            <div class="w-64 bg-gray-800 border-r border-gray-700 p-4">
+                <h2 class="text-lg font-semibold mb-4">Collections</h2>
+                
+                <button @click="newRequest" 
+                    class="w-full mb-4 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm">
+                    + Nouvelle Requête
+                </button>
+
+                <!-- History -->
+                <div class="mb-6">
+                    <h3 class="text-sm text-gray-400 mb-2">Historique</h3>
+                    <div v-for="item in history.slice(0, 5)" :key="item.id"
+                        @click="loadFromHistory(item)"
+                        class="cursor-pointer hover:bg-gray-700 p-2 rounded text-sm mb-1">
+                        <span :class="getMethodClass(item.method)" class="method-badge">
+                            {{ item.method }}
+                        </span>
+                        <div class="text-xs text-gray-400 mt-1 truncate">{{ item.url }}</div>
+                    </div>
+                </div>
+
+                <!-- Saved Collections -->
+                <div>
+                    <h3 class="text-sm text-gray-400 mb-2">Collections Sauvegardées</h3>
+                    <div v-for="collection in collections" :key="collection.id"
+                        class="mb-2">
+                        <div class="font-medium text-sm mb-1">{{ collection.name }}</div>
+                        <div v-for="req in collection.requests" :key="req.id"
+                            @click="loadRequest(req)"
+                            class="ml-2 cursor-pointer hover:bg-gray-700 p-1 rounded text-xs">
+                            <span :class="getMethodClass(req.method)">{{ req.method }}</span>
+                            {{ req.name }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="flex-1 flex flex-col">
+                <!-- Request Bar -->
+                <div class="bg-gray-800 border-b border-gray-700 p-4">
+                    <div class="flex gap-2">
+                        <select v-model="currentRequest.method" 
+                            class="bg-gray-700 px-3 py-2 rounded">
+                            <option>GET</option>
+                            <option>POST</option>
+                            <option>PUT</option>
+                            <option>PATCH</option>
+                            <option>DELETE</option>
+                        </select>
+                        
+                        <input v-model="currentRequest.url" 
+                            placeholder="Enter request URL..."
+                            class="flex-1 bg-gray-700 px-4 py-2 rounded"
+                            @keyup.enter="sendRequest">
+                        
+                        <button @click="sendRequest"
+                            :disabled="loading"
+                            class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-6 py-2 rounded font-medium">
+                            {{ loading ? 'Envoi...' : 'Send' }}
+                        </button>
+
+                        <button @click="saveRequest"
+                            class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded">
+                            💾
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Request Tabs -->
+                <div class="bg-gray-800 border-b border-gray-700">
+                    <div class="flex gap-6 px-4">
+                        <button v-for="tab in requestTabs" :key="tab"
+                            @click="activeTab = tab"
+                            :class="['py-3 text-sm', activeTab === tab ? 'tab-active' : 'text-gray-400']">
+                            {{ tab }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tab Content -->
+                <div class="bg-gray-850 p-4 flex-1 overflow-auto">
+                    <!-- Headers Tab -->
+                    <div v-if="activeTab === 'Headers'" class="space-y-2">
+                        <div v-for="(header, index) in currentRequest.headers" :key="index"
+                            class="flex gap-2">
+                            <input v-model="header.key" 
+                                placeholder="Header name"
+                                class="flex-1 bg-gray-700 px-3 py-2 rounded text-sm">
+                            <input v-model="header.value" 
+                                placeholder="Value"
+                                class="flex-1 bg-gray-700 px-3 py-2 rounded text-sm">
+                            <button @click="removeHeader(index)"
+                                class="bg-red-600 hover:bg-red-700 px-3 py-2 rounded text-sm">
+                                ✕
+                            </button>
+                        </div>
+                        <button @click="addHeader"
+                            class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm">
+                            + Add Header
+                        </button>
+                    </div>
+
+                    <!-- Body Tab -->
+                    <div v-if="activeTab === 'Body'">
+                        <select v-model="currentRequest.bodyType" 
+                            class="bg-gray-700 px-3 py-2 rounded mb-3 text-sm">
+                            <option>none</option>
+                            <option>JSON</option>
+                            <option>form-data</option>
+                            <option>raw</option>
+                        </select>
+                        
+                        <textarea v-if="currentRequest.bodyType !== 'none'"
+                            v-model="currentRequest.body"
+                            placeholder='{"key": "value"}'
+                            class="w-full h-64 bg-gray-700 p-3 rounded font-mono text-sm">
+                        </textarea>
+                    </div>
+
+                    <!-- Auth Tab -->
+                    <div v-if="activeTab === 'Auth'">
+                        <select v-model="currentRequest.authType" 
+                            class="bg-gray-700 px-3 py-2 rounded mb-3 text-sm">
+                            <option>No Auth</option>
+                            <option>Bearer Token</option>
+                            <option>API Key</option>
+                            <option>Basic Auth</option>
+                        </select>
+                        
+                        <div v-if="currentRequest.authType === 'Bearer Token'" class="space-y-2">
+                            <input v-model="currentRequest.authToken"
+                                placeholder="Token"
+                                class="w-full bg-gray-700 px-3 py-2 rounded text-sm">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Response Section -->
+                <div class="bg-gray-900 border-t border-gray-700 flex-1 flex flex-col">
+                    <div class="bg-gray-800 px-4 py-2 flex justify-between items-center">
+                        <div class="flex gap-4 text-sm">
+                            <span v-if="response.status" 
+                                :class="getStatusClass(response.status)">
+                                Status: {{ response.status }}
+                            </span>
+                            <span v-if="response.time" class="text-gray-400">
+                                Time: {{ response.time }}ms
+                            </span>
+                            <span v-if="response.size" class="text-gray-400">
+                                Size: {{ response.size }}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex-1 overflow-auto p-4">
+                        <pre v-if="response.data" class="json-display p-4 rounded">{{ formatJson(response.data) }}</pre>
+                        <div v-else-if="response.error" class="text-red-400">
+                            Error: {{ response.error }}
+                        </div>
+                        <div v-else class="text-gray-500 text-center py-8">
+                            Envoie une requête pour voir la réponse
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+        const { ipcRenderer } = require('electron');
+
+        createApp({
+            data() {
+                return {
+                    currentRequest: {
+                        method: 'GET',
+                        url: 'https://jsonplaceholder.typicode.com/posts',
+                        headers: [
+                            { key: 'Content-Type', value: 'application/json' }
+                        ],
+                        body: '',
+                        bodyType: 'none',
+                        authType: 'No Auth',
+                        authToken: ''
+                    },
+                    response: {
+                        status: null,
+                        data: null,
+                        time: null,
+                        size: null,
+                        error: null
+                    },
+                    loading: false,
+                    activeTab: 'Headers',
+                    requestTabs: ['Headers', 'Body', 'Auth'],
+                    history: [],
+                    collections: []
+                }
+            },
+            mounted() {
+                this.loadLocalData();
+            },
+            methods: {
+                async sendRequest() {
+                    this.loading = true;
+                    this.response = { status: null, data: null, time: null, size: null, error: null };
+                    
+                    const startTime = Date.now();
+                    
+                    try {
+                        const headers = {};
+                        this.currentRequest.headers.forEach(h => {
+                            if (h.key && h.value) headers[h.key] = h.value;
+                        });
+
+                        if (this.currentRequest.authType === 'Bearer Token' && this.currentRequest.authToken) {
+                            headers['Authorization'] = `Bearer ${this.currentRequest.authToken}`;
+                        }
+
+                        const options = {
+                            method: this.currentRequest.method,
+                            headers
+                        };
+
+                        if (['POST', 'PUT', 'PATCH'].includes(this.currentRequest.method) && 
+                            this.currentRequest.bodyType !== 'none') {
+                            options.body = this.currentRequest.body;
+                        }
+
+
+                        const response = await fetch(this.currentRequest.url, options);
+                        const responseTime = Date.now() - startTime;
+                        
+                        const responseText = await response.text();
+                        let responseData;
+                        
+                        try {
+                            responseData = JSON.parse(responseText);
+                        } catch {
+                            responseData = responseText;
+                        }
+
+                        this.response = {
+                            status: response.status,
+                            data: responseData,
+                            time: responseTime,
+                            size: new Blob([responseText]).size > 1024 
+                                ? `${(new Blob([responseText]).size / 1024).toFixed(2)} KB`
+                                : `${new Blob([responseText]).size} B`,
+                            error: null
+                        };
+
+                        this.addToHistory();
+                        
+                    } catch (error) {
+                        this.response.error = error.message;
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                addToHistory() {
+                    const historyItem = {
+                        id: Date.now(),
+                        method: this.currentRequest.method,
+                        url: this.currentRequest.url,
+                        timestamp: new Date().toISOString(),
+                        request: {...this.currentRequest}
+                    };
+                    
+                    this.history.unshift(historyItem);
+                    if (this.history.length > 20) this.history.pop();
+                    
+                    this.saveLocalData('history');
+                },
+
+                loadFromHistory(item) {
+                    this.currentRequest = {...item.request};
+                },
+
+                loadRequest(request) {
+                    this.currentRequest = {...request};
+                },
+
+                newRequest() {
+                    this.currentRequest = {
+                        method: 'GET',
+                        url: '',
+                        headers: [{ key: 'Content-Type', value: 'application/json' }],
+                        body: '',
+                        bodyType: 'none',
+                        authType: 'No Auth',
+                        authToken: ''
+                    };
+                    this.response = { status: null, data: null, time: null, size: null, error: null };
+                },
+
+                async saveRequest() {
+                    const name = prompt('Nom de la requête:');
+                    if (!name) return;
+                    
+                    const collectionName = prompt('Nom de la collection:');
+                    if (!collectionName) return;
+                    
+                    let collection = this.collections.find(c => c.name === collectionName);
+                    if (!collection) {
+                        collection = {
+                            id: Date.now(),
+                            name: collectionName,
+                            requests: []
+                        };
+                        this.collections.push(collection);
+                    }
+                    
+                    collection.requests.push({
+                        id: Date.now(),
+                        name,
+                        ...this.currentRequest
+                    });
+                    
+                    this.saveLocalData('collections');
+                },
+
+                addHeader() {
+                    this.currentRequest.headers.push({ key: '', value: '' });
+                },
+
+                removeHeader(index) {
+                    this.currentRequest.headers.splice(index, 1);
+                },
+
+                formatJson(data) {
+                    if (typeof data === 'string') return data;
+                    return JSON.stringify(data, null, 2);
+                },
+
+                getMethodClass(method) {
+                    const classes = {
+                        'GET': 'bg-green-600',
+                        'POST': 'bg-blue-600',
+                        'PUT': 'bg-yellow-600',
+                        'PATCH': 'bg-orange-600',
+                        'DELETE': 'bg-red-600'
+                    };
+                    return classes[method] || 'bg-gray-600';
+                },
+
+                getStatusClass(status) {
+                    if (status >= 200 && status < 300) return 'text-green-400';
+                    if (status >= 300 && status < 400) return 'text-yellow-400';
+                    if (status >= 400 && status < 500) return 'text-orange-400';
+                    if (status >= 500) return 'text-red-400';
+                    return 'text-gray-400';
+                },
+
+                async loadLocalData() {
+                    this.history = await ipcRenderer.invoke('get-local-data', 'history');
+                    this.collections = await ipcRenderer.invoke('get-local-data', 'collections');
+                },
+
+                async saveLocalData(type) {
+                    const data = type === 'history' ? this.history : this.collections;
+                    await ipcRenderer.invoke('save-local-data', type, data);
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
